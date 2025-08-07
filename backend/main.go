@@ -196,7 +196,7 @@ func (app *App) generateSnippets(ctx context.Context, content string) ([]string,
 		},
 	}
 
-	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction. Markdown: " + content
+	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction roughly a paragraph or so in size. Markdown: " + content
 	config := &genai.GenerateContentConfig{Tools: tools}
 	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {
@@ -248,7 +248,7 @@ func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, e
 		},
 	}
 
-	prompt := "Generate a list of relevant labels for the following snippet. Snippet: " + snippet
+	prompt := "Generate a list of relevant topic labels for the following snippet. Snippet: " + snippet
 	config := &genai.GenerateContentConfig{Tools: tools}
 	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {
