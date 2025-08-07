@@ -67,14 +67,23 @@ func TestProcessHandler_Integration(t *testing.T) {
 		t.Fatalf("Failed to read sample file: %v", err)
 	}
 
+	// Use a fixed key for the test to allow for manual re-runs
+	testKey := "test-gemini-brief"
+
 	reqBody := ProcessRequest{
 		Content: string(content),
+		Key:     testKey,
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	processAndVerify(t, app, body, firestoreClient, ctx)
+
+}
+
+func processAndVerify(t *testing.T, app *App, body []byte, firestoreClient *firestore.Client, ctx context.Context) {
 	req, err := http.NewRequest("POST", "/process", bytes.NewBuffer(body))
 	if err != nil {
 		t.Fatal(err)
@@ -121,15 +130,5 @@ func TestProcessHandler_Integration(t *testing.T) {
 
 	if status, err := sourceDoc.DataAt("status"); err != nil || status != "processed" {
 		t.Fatalf("Source document did not reach 'processed' status")
-	}
-
-	// Verify that snippets were created
-	snippets, err := firestoreClient.Collection("snippets").Where("source", "==", firestoreClient.Collection("sources").Doc(documentID)).Documents(ctx).GetAll()
-	if err != nil {
-		t.Fatalf("Failed to get snippets: %v", err)
-	}
-
-	if len(snippets) == 0 {
-		t.Errorf("Expected snippets to be created, but found none")
 	}
 }

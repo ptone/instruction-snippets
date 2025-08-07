@@ -21,6 +21,7 @@ type App struct {
 // ProcessRequest defines the structure for the incoming request
 type ProcessRequest struct {
 	Content string `json:"content"`
+	Key     string `json:"key"`
 }
 
 // Source defines the structure for the sources collection
@@ -29,6 +30,7 @@ type Source struct {
 	LastRefreshed time.Time `firestore:"last_refreshed"`
 	Type          string    `firestore:"type"`
 	Status        string    `firestore:"status"`
+	Key           string    `firestore:"key"`
 }
 
 // Snippet defines the structure for the snippets collection
@@ -151,24 +153,95 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	source := Source{
-		Content:       req.Content,
-		LastRefreshed: time.Now(),
-		Type:          "file", // Assuming file upload for now
-		Status:        "processing",
-	}
 
-	ref, _, err := app.firestoreClient.Collection("sources").Add(ctx, source)
+	// Check if a source with the given key already exists
+	iter := app.firestoreClient.Collection("sources").Where("key", "==", req.Key).Limit(1).Documents(ctx)
+	doc, err := iter.Next()
 	if err != nil {
-		http.Error(w, "Failed to store source", http.StatusInternalServerError)
-		log.Printf("Failed to add source: %v", err)
-		return
+		if err.Error() == "no more items in iterator" {
+			// This is not an error, just means the source doesn't exist yet
+			doc = nil
+		} else {
+			http.Error(w, "Failed to query for existing source", http.StatusInternalServerError)
+			log.Printf("Failed to query for existing source: %v", err)
+			return
+		}
 	}
 
-	go app.processSnippetsAsync(context.Background(), req.Content, ref)
+	var sourceRef *firestore.DocumentRef
+	if doc != nil {
+		// Source exists, delete old snippets and update
+		sourceRef = doc.Ref
+		log.Printf("Source with key '%s' found, reprocessing...", req.Key)
+
+		// Immediately update the status to "processing"
+		_, err := sourceRef.Set(ctx, map[string]interface{}{
+			"status": "processing",
+		}, firestore.MergeAll)
+		if err != nil {
+			http.Error(w, "Failed to update source status", http.StatusInternalServerError)
+			log.Printf("Failed to update source status: %v", err)
+			return
+		}
+
+		if err := app.deleteSnippetsBySource(ctx, sourceRef);
+		err != nil {
+			http.Error(w, "Failed to delete old snippets", http.StatusInternalServerError)
+			log.Printf("Failed to delete old snippets: %v", err)
+			return
+		}
+
+		_, err = sourceRef.Set(ctx, map[string]interface{}{
+			"Content":       req.Content,
+			"LastRefreshed": time.Now(),
+		}, firestore.MergeAll)
+		if err != nil {
+			http.Error(w, "Failed to update source", http.StatusInternalServerError)
+			log.Printf("Failed to update source: %v", err)
+			return
+		}
+	} else {
+		// No existing source, create a new one
+		source := Source{
+			Content:       req.Content,
+			LastRefreshed: time.Now(),
+			Type:          "file", // Assuming file upload for now
+			Status:        "processing",
+			Key:           req.Key,
+		}
+		var err error
+		sourceRef, _, err = app.firestoreClient.Collection("sources").Add(ctx, source)
+		if err != nil {
+			http.Error(w, "Failed to store source", http.StatusInternalServerError)
+			log.Printf("Failed to add source: %v", err)
+			return
+		}
+	}
+
+	go app.processSnippetsAsync(context.Background(), req.Content, sourceRef)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"documentId": ref.ID})
+	json.NewEncoder(w).Encode(map[string]string{"documentId": sourceRef.ID})
+}
+
+func (app *App) deleteSnippetsBySource(ctx context.Context, sourceRef *firestore.DocumentRef) error {
+	iter := app.firestoreClient.Collection("snippets").Where("source", "==", sourceRef).Documents(ctx)
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			if err.Error() == "no more items in iterator" {
+				break // All done
+			}
+			return fmt.Errorf("failed to iterate snippets: %v", err)
+		}
+		_, err = doc.Ref.Delete(ctx)
+		if err != nil {
+			log.Printf("Failed to delete snippet %s: %v", doc.Ref.ID, err)
+			// Decide if you want to continue or return an error
+		}
+	}
+	log.Printf("Deleted all snippets for source %s", sourceRef.ID)
+	return nil
 }
 
 func (app *App) generateSnippets(ctx context.Context, content string) ([]string, error) {
@@ -196,7 +269,7 @@ func (app *App) generateSnippets(ctx context.Context, content string) ([]string,
 		},
 	}
 
-	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction roughly a paragraph or so in size. Markdown: " + content
+	prompt := "Break down the following markdown into discrete, standalone instruction snippets, preserving the original markdown formatting and carriage returns. Each snippet should be a self-contained piece of instruction roughly a paragraph or so in size. Markdown: " + content
 	config := &genai.GenerateContentConfig{Tools: tools}
 	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {

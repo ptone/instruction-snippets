@@ -56,6 +56,17 @@ This document outlines the phased development milestones for the LLM Prompt Engi
     *   Save the processed snippets, labels, and embeddings to the Firestore `snippets` collection, include a doc-reference to the sources document from which the snippet is associated
     *   Note the "last processed" timestamp on the sources document
 
+## Milestone 3.5: Make the ingest more resilient
+
+As part of processing a source file, we need some sort of key. For now we will use file-name or URL. We will still use the document id as an internal link for relationships as the we may involve to a more complex duplicate detecting key.
+
+When a source file is being submitted for re-processing, the order should be:
+
+        1. Delete all snippets associated with that source
+        1. update the contents of the source from the provided content
+        1. reprocess the source to generate snippets
+
+This milestone should support the ability to re-run integration tests with the sample files or URLs without producing a proliferation of firestore documents
 
 ## Milestone 4: End-to-End Flow with User Authentication and Advanced Features
 
