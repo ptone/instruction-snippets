@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/genai"
@@ -90,5 +91,45 @@ func TestProcessHandler_Integration(t *testing.T) {
 		t.Logf("Response body: %s", rr.Body.String())
 	}
 
-	// TODO: Add verification that the data was written to firestore.
+	var respBody map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("Failed to unmarshal response body: %v", err)
+	}
+
+	documentID, ok := respBody["documentId"]
+	if !ok {
+		t.Fatalf("Response body does not contain documentId")
+	}
+
+	// Poll the source document until the status is "processed"
+	const maxRetries = 30
+	const retryInterval = 10 * time.Second
+	var sourceDoc *firestore.DocumentSnapshot
+
+	for i := 0; i < maxRetries; i++ {
+		sourceDoc, err = firestoreClient.Collection("sources").Doc(documentID).Get(ctx)
+		if err != nil {
+			t.Fatalf("Failed to get source document: %v", err)
+		}
+
+		if status, err := sourceDoc.DataAt("status"); err == nil && status == "processed" {
+			break
+		}
+
+		time.Sleep(retryInterval)
+	}
+
+	if status, err := sourceDoc.DataAt("status"); err != nil || status != "processed" {
+		t.Fatalf("Source document did not reach 'processed' status")
+	}
+
+	// Verify that snippets were created
+	snippets, err := firestoreClient.Collection("snippets").Where("source", "==", firestoreClient.Collection("sources").Doc(documentID)).Documents(ctx).GetAll()
+	if err != nil {
+		t.Fatalf("Failed to get snippets: %v", err)
+	}
+
+	if len(snippets) == 0 {
+		t.Errorf("Expected snippets to be created, but found none")
+	}
 }

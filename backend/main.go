@@ -73,6 +73,7 @@ func main() {
 }
 
 func (app *App) processSnippetsAsync(ctx context.Context, content string, sourceRef *firestore.DocumentRef) {
+	log.Println("Starting snippet processing...")
 	// Generate snippets from the markdown content
 	snippets, err := app.generateSnippets(ctx, content)
 	if err != nil {
@@ -87,20 +88,22 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 		return
 	}
 
+	log.Printf("Generated %d snippets", len(snippets))
+
 	// Process and store snippets
-	for _, snippetText := range snippets {
-		log.Printf("Generated snippet: %s", snippetText)
+	for i, snippetText := range snippets {
+		log.Printf("Processing snippet %d/%d: %s", i+1, len(snippets), snippetText)
 
 		labels, err := app.generateLabels(ctx, snippetText)
 		if err != nil {
-			log.Printf("Failed to generate labels for snippet: %v", err)
+			log.Printf("Failed to generate labels for snippet %d: %v", i+1, err)
 			continue
 		}
-		log.Printf("Generated labels: %v", labels)
+		log.Printf("Generated labels for snippet %d: %v", i+1, labels)
 
 		embedding, err := app.generateEmbedding(ctx, snippetText)
 		if err != nil {
-			log.Printf("Failed to generate embedding for snippet: %v", err)
+			log.Printf("Failed to generate embedding for snippet %d: %v", i+1, err)
 			continue
 		}
 
@@ -116,10 +119,13 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 
 		_, _, err = app.firestoreClient.Collection("snippets").Add(ctx, newSnippet)
 		if err != nil {
-			log.Printf("Failed to store snippet: %v", err)
+			log.Printf("Failed to store snippet %d: %v", i+1, err)
 			continue
 		}
+		log.Printf("Successfully stored snippet %d", i+1)
 	}
+
+	log.Println("Snippet processing complete.")
 
 	// Update the source document to indicate processing is complete
 	_, err = sourceRef.Set(ctx, map[string]interface{}{
@@ -129,6 +135,7 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 	if err != nil {
 		log.Printf("Failed to update source status: %v", err)
 	}
+	log.Println("Source document status updated to 'processed'")
 }
 
 func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
