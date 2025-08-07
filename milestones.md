@@ -49,10 +49,13 @@ This document outlines the phased development milestones for the LLM Prompt Engi
     *   Create an HTTP endpoint or a manually-triggered function that accepts markdown content.
     *   Integrate with the Vertex AI Gemini API.
     *   Implement the processing logic:
+        1. Store the markdown source in a `sources` collection in Firestore, noting the generated document id
         1.  Send the markdown content to the LLM to be broken down into discrete instruction snippets.
-        2.  For each generated snippet, call the LLM again to generate relevant labels.
-        3.  For each snippet, call the Vertex AI Embedding API to generate and store an embedding vector.
-    *   Save the processed snippets, labels, and embeddings to the Firestore `snippets` collection.
+        1.  For each generated snippet, call the LLM again to generate relevant labels.
+        1.  For each snippet, call the Vertex AI API for an embedding model to generate an embedding vector.
+    *   Save the processed snippets, labels, and embeddings to the Firestore `snippets` collection, include a doc-reference to the sources document from which the snippet is associated
+    *   Note the "last processed" timestamp on the sources document
+
 
 ## Milestone 4: End-to-End Flow with User Authentication and Advanced Features
 

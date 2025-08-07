@@ -8,6 +8,8 @@ Use typescript, sveltekit (with Svelte v5), Vite, shadcn-svelte components  for 
 
 For Tailwind, always be sure to pay attention in using Tailwind version 4 conventions
 
+When adding new UI elements, always prefer a valid shadcn component
+
 To build the front end manually, don't forget to always prepend "cd frontend &&" to the npm build commands.
 
 a dev server is used for hot reload. The dev server will be started externally, do not execute npm run dev yourself.
@@ -17,6 +19,8 @@ use 'cd frontend && npm run check' and 'cd frontend && npm run lint' to check fo
 ## Backend
 
 For the backend use golang where needed, but prefer Firestore native web client for most web data use over an API service.
+
+For golang vertex use "google.golang.org/genai" library, documented here https://pkg.go.dev/google.golang.org/genai 
 
 Backend services are still needed for anything more complex to support for the web app, and for back-end processing.
 

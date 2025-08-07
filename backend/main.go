@@ -51,7 +51,7 @@ func main() {
 
 	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
 		Project:  "new-test-297222",
-		Location: "us-central1",
+		Location: "global",
 		Backend:  genai.BackendVertexAI,
 	})
 	if err != nil {
@@ -154,40 +154,106 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) generateSnippets(ctx context.Context, content string) ([]string, error) {
-	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction. Return the snippets as a JSON array of strings. Markdown: " + content
-	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-pro", genai.Text(prompt), nil)
+	snippetSchema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"snippets": {
+				Type:        genai.TypeArray,
+				Description: "List of instruction snippets.",
+				Items:       &genai.Schema{Type: genai.TypeString},
+			},
+		},
+		Required: []string{"snippets"},
+	}
+
+	tools := []*genai.Tool{
+		{
+			FunctionDeclarations: []*genai.FunctionDeclaration{
+				{
+					Name:                 "extractSnippets",
+					Description:          "Extracts discrete, standalone instruction snippets from a markdown document.",
+					ParametersJsonSchema: snippetSchema,
+				},
+			},
+		},
+	}
+
+	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction. Markdown: " + content
+	config := &genai.GenerateContentConfig{Tools: tools}
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-1.5-flash", genai.Text(prompt), config)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
 		part := resp.Candidates[0].Content.Parts[0]
-		text := fmt.Sprint(part)
-		var snippets []string
-		if err := json.Unmarshal([]byte(text), &snippets); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal snippets: %w", err)
+		if fc := part.FunctionCall; fc != nil {
+			if fc.Name == "extractSnippets" {
+				if snippets, ok := fc.Args["snippets"].([]interface{}); ok {
+					var result []string
+					for _, s := range snippets {
+						if str, ok := s.(string); ok {
+							result = append(result, str)
+						}
+					}
+					return result, nil
+				}
+			}
 		}
-		return snippets, nil
 	}
+
 	return nil, fmt.Errorf("unexpected response format or empty response")
 }
 
 func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, error) {
-	prompt := "Generate a list of relevant labels for the following snippet. Return the labels as a JSON array of strings. Snippet: " + snippet
-	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-pro", genai.Text(prompt), nil)
+	labelSchema := &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"labels": {
+				Type:        genai.TypeArray,
+				Description: "List of relevant labels for a code snippet.",
+				Items:       &genai.Schema{Type: genai.TypeString},
+			},
+		},
+		Required: []string{"labels"},
+	}
+
+	tools := []*genai.Tool{
+		{
+			FunctionDeclarations: []*genai.FunctionDeclaration{
+				{
+					Name:                 "extractLabels",
+					Description:          "Extracts relevant labels from a code snippet.",
+					ParametersJsonSchema: labelSchema,
+				},
+			},
+		},
+	}
+
+	prompt := "Generate a list of relevant labels for the following snippet. Snippet: " + snippet
+	config := &genai.GenerateContentConfig{Tools: tools}
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-1.5-flash", genai.Text(prompt), config)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
 		part := resp.Candidates[0].Content.Parts[0]
-		text := fmt.Sprint(part)
-		var labels []string
-		if err := json.Unmarshal([]byte(text), &labels); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
+		if fc := part.FunctionCall; fc != nil {
+			if fc.Name == "extractLabels" {
+				if labels, ok := fc.Args["labels"].([]interface{}); ok {
+					var result []string
+					for _, l := range labels {
+						if str, ok := l.(string); ok {
+							result = append(result, str)
+						}
+					}
+					return result, nil
+				}
+			}
 		}
-		return labels, nil
 	}
+
 	return nil, fmt.Errorf("unexpected response format or empty response")
 }
 
