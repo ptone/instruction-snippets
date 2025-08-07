@@ -28,7 +28,7 @@
 
 	$: filteredSnippets = snippets.filter((snippet) => {
 		const lowerCaseSearch = searchTerm.toLowerCase();
-		const inText = snippet.Content.toLowerCase().includes(lowerCaseSearch);
+		const inText = snippet.content.toLowerCase().includes(lowerCaseSearch);
 		const inLabels = snippet.labels.some((label: string) =>
 			label.toLowerCase().includes(lowerCaseSearch)
 		);
@@ -65,7 +65,7 @@
 					<Card.Title>Snippet</Card.Title>
 				</Card.Header>
 				<Card.Content>
-					<p>{snippet.Content}</p>
+					<p>{snippet.content}</p>
 				</Card.Content>
 				<Card.Footer class="flex justify-between">
 					<div class="mt-2 flex flex-wrap">
@@ -94,7 +94,7 @@
 							<Button
 								variant="ghost"
 								size="icon"
-								onclick={() => copyToClipboard(snippet.id, snippet.Content)}
+								onclick={() => copyToClipboard(snippet.id, snippet.content)}
 							>
 								<Copy class="h-4 w-4" />
 							</Button>
