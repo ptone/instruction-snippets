@@ -4,126 +4,201 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 
 	"cloud.google.com/go/firestore"
-	"cloud.google.com/go/vertexai/genai"
+	"google.golang.org/genai"
 )
 
-const (
-	projectID = "new-test-297222"
-	location  = "us-central1"
-)
+// App holds application dependencies
+type App struct {
+	firestoreClient *firestore.Client
+	genaiClient     *genai.Client
+}
 
-// Snippet represents the data structure for a snippet in Firestore.
+// ProcessRequest defines the structure for the incoming request
+type ProcessRequest struct {
+	Content string `json:"content"`
+}
 
+// Source defines the structure for the sources collection
+type Source struct {
+	Content       string    `firestore:"content"`
+	LastRefreshed time.Time `firestore:"last_refreshed"`
+	Type          string    `firestore:"type"`
+}
+
+// Snippet defines the structure for the snippets collection
 type Snippet struct {
-	Text      string   `firestore:"text"`
-	Labels    []string `firestore:"labels"`
-	CreatedAt int64    `firestore:"created_at"`
-	ThumbsUp  int      `firestore:"thumbs_up"`
-	ThumbsDown int      `firestore:"thumbs_down"`
+	Content    string                 `firestore:"content"`
+	Labels     []string               `firestore:"labels"`
+	Source     *firestore.DocumentRef `firestore:"source"`
+	ThumbsUp   int                    `firestore:"thumbs_up"`
+	ThumbsDown int                    `firestore:"thumbs_down"`
+	CreatedAt  time.Time              `firestore:"created_at"`
+	Embedding  []float32              `firestore:"embedding"`
 }
 
 func main() {
-	http.HandleFunc("/ingest", ingestHandler)
+	ctx := context.Background()
+	firestoreClient, err := firestore.NewClient(ctx, "new-test-297222")
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer firestoreClient.Close()
 
-	fmt.Println("Server starting on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		Project:  "new-test-297222",
+		Location: "us-central1",
+		Backend:  genai.BackendVertexAI,
+	})
+	if err != nil {
+		log.Fatalf("Failed to create genai client: %v", err)
+	}
+
+	app := &App{
+		firestoreClient: firestoreClient,
+		genaiClient:     genaiClient,
+	}
+
+	http.HandleFunc("/process", app.processHandler)
+
+	log.Println("Server starting on port 8080...")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
 
-func ingestHandler(w http.ResponseWriter, r *http.Request) {
+func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is accepted", http.StatusMethodNotAllowed)
 		return
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Error reading request body", http.StatusInternalServerError)
-		return
-	}
-	defer r.Body.Close()
-
-	markdownContent := string(body)
-
-	snippets, err := processMarkdown(markdownContent)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error processing markdown: %v", err), http.StatusInternalServerError)
+	var req ProcessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Failed to decode request", http.StatusBadRequest)
 		return
 	}
 
-	if err := saveSnippets(snippets); err != nil {
-		http.Error(w, fmt.Sprintf("Error saving snippets: %v", err), http.StatusInternalServerError)
+	ctx := context.Background()
+	source := Source{
+		Content:       req.Content,
+		LastRefreshed: time.Now(),
+		Type:          "file", // Assuming file upload for now
+	}
+
+	ref, _, err := app.firestoreClient.Collection("sources").Add(ctx, source)
+	if err != nil {
+		http.Error(w, "Failed to store source", http.StatusInternalServerError)
+		log.Printf("Failed to add source: %v", err)
 		return
+	}
+
+	log.Printf("Stored source with ID: %s", ref.ID)
+
+	// Generate snippets from the markdown content
+	snippets, err := app.generateSnippets(ctx, req.Content)
+	if err != nil {
+		http.Error(w, "Failed to generate snippets", http.StatusInternalServerError)
+		log.Printf("Failed to generate snippets: %v", err)
+		return
+	}
+
+	// Process and store snippets
+	for _, snippetText := range snippets {
+		log.Printf("Generated snippet: %s", snippetText)
+
+		labels, err := app.generateLabels(ctx, snippetText)
+		if err != nil {
+			log.Printf("Failed to generate labels for snippet: %v", err)
+			continue
+		}
+		log.Printf("Generated labels: %v", labels)
+
+		embedding, err := app.generateEmbedding(ctx, snippetText)
+		if err != nil {
+			log.Printf("Failed to generate embedding for snippet: %v", err)
+			continue
+		}
+
+		newSnippet := Snippet{
+			Content:    snippetText,
+			Labels:     labels,
+			Source:     ref,
+			ThumbsUp:   0,
+			ThumbsDown: 0,
+			CreatedAt:  time.Now(),
+			Embedding:  embedding,
+		}
+
+		_, _, err = app.firestoreClient.Collection("snippets").Add(ctx, newSnippet)
+		if err != nil {
+			log.Printf("Failed to store snippet: %v", err)
+			continue
+		}
+	}
+
+	// Update the last refreshed timestamp on the source document
+	_, err = ref.Set(ctx, map[string]interface{}{
+		"last_refreshed": time.Now(),
+	}, firestore.MergeAll)
+	if err != nil {
+		log.Printf("Failed to update source last_refreshed: %v", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(snippets)
+	w.Write([]byte("Processing started"))
 }
 
-func processMarkdown(content string) ([]Snippet, error) {
-	ctx := context.Background()
-	client, err := genai.NewClient(ctx, projectID, location)
+func (app *App) generateSnippets(ctx context.Context, content string) ([]string, error) {
+	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction. Return the snippets as a JSON array of strings. Markdown: " + content
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-pro", genai.Text(prompt), nil)
 	if err != nil {
-		return nil, fmt.Errorf("error creating genai client: %v", err)
-	}
-	defer client.Close()
-
-	gemini := client.GenerativeModel("gemini-pro")
-
-	// First, get the snippets
-	prompt := fmt.Sprintf("Extract the instruction snippets from the following markdown document. Each snippet should be a standalone instruction. Return the snippets as a JSON array of strings. Markdown: %s", content)
-	resp, err := gemini.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil {
-		return nil, fmt.Errorf("error generating content: %v", err)
+		return nil, err
 	}
 
-	// Assuming the response is a JSON array of strings
-	var snippetTexts []string
-	if err := json.Unmarshal([]byte(fmt.Sprintf("%s", resp.Candidates[0].Content.Parts[0])), &snippetTexts); err != nil {
-		return nil, fmt.Errorf("error unmarshalling snippets: %v", err)
-	}
-
-	var snippets []Snippet
-	for _, text := range snippetTexts {
-		// Then, get the labels for each snippet
-		labelPrompt := fmt.Sprintf("Generate a list of relevant labels for the following instruction snippet. Return the labels as a JSON array of strings. Snippet: %s", text)
-		labelResp, err := gemini.GenerateContent(ctx, genai.Text(labelPrompt))
-		if err != nil {
-			return nil, fmt.Errorf("error generating labels: %v", err)
+	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
+		part := resp.Candidates[0].Content.Parts[0]
+		text := fmt.Sprint(part)
+		var snippets []string
+		if err := json.Unmarshal([]byte(text), &snippets); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal snippets: %w", err)
 		}
+		return snippets, nil
+	}
+	return nil, fmt.Errorf("unexpected response format or empty response")
+}
 
+func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, error) {
+	prompt := "Generate a list of relevant labels for the following snippet. Return the labels as a JSON array of strings. Snippet: " + snippet
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-pro", genai.Text(prompt), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
+		part := resp.Candidates[0].Content.Parts[0]
+		text := fmt.Sprint(part)
 		var labels []string
-		if err := json.Unmarshal([]byte(fmt.Sprintf("%s", labelResp.Candidates[0].Content.Parts[0])), &labels); err != nil {
-			return nil, fmt.Errorf("error unmarshalling labels: %v", err)
+		if err := json.Unmarshal([]byte(text), &labels); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal labels: %w", err)
 		}
-
-		snippets = append(snippets, Snippet{
-			Text:   text,
-			Labels: labels,
-		})
+		return labels, nil
 	}
-
-	return snippets, nil
+	return nil, fmt.Errorf("unexpected response format or empty response")
 }
 
-func saveSnippets(snippets []Snippet) error {
-	ctx := context.Background()
-	client, err := firestore.NewClient(ctx, projectID)
+func (app *App) generateEmbedding(ctx context.Context, snippet string) ([]float32, error) {
+	contents := []*genai.Content{genai.NewContentFromText(snippet, genai.RoleUser)}
+	result, err := app.genaiClient.Models.EmbedContent(ctx, "embedding-001", contents, nil)
 	if err != nil {
-		return fmt.Errorf("error creating firestore client: %v", err)
+		return nil, err
 	}
-	defer client.Close()
-
-	for _, snippet := range snippets {
-		_, _, err := client.Collection("snippets").Add(ctx, snippet)
-		if err != nil {
-			return fmt.Errorf("error adding snippet: %v", err)
-		}
+	if len(result.Embeddings) == 0 || len(result.Embeddings[0].Values) == 0 {
+		return nil, fmt.Errorf("empty embedding returned")
 	}
-
-	return nil
+	return result.Embeddings[0].Values, nil
 }
