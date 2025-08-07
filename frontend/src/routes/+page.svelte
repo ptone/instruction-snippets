@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { collection, getDocs, doc, updateDoc, increment, type DocumentData } from 'firebase/firestore';
+	import {
+		collection,
+		getDocs,
+		doc,
+		updateDoc,
+		increment,
+		type DocumentData
+	} from 'firebase/firestore';
 	import { db } from '$lib/firebase';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
@@ -21,7 +28,7 @@
 
 	$: filteredSnippets = snippets.filter((snippet) => {
 		const lowerCaseSearch = searchTerm.toLowerCase();
-		const inText = snippet.text.toLowerCase().includes(lowerCaseSearch);
+		const inText = snippet.Content.toLowerCase().includes(lowerCaseSearch);
 		const inLabels = snippet.labels.some((label: string) =>
 			label.toLowerCase().includes(lowerCaseSearch)
 		);
@@ -58,7 +65,7 @@
 					<Card.Title>Snippet</Card.Title>
 				</Card.Header>
 				<Card.Content>
-					<p>{snippet.text}</p>
+					<p>{snippet.Content}</p>
 				</Card.Content>
 				<Card.Footer class="flex justify-between">
 					<div class="mt-2 flex flex-wrap">
@@ -67,20 +74,35 @@
 						{/each}
 					</div>
 					<div class="flex items-center space-x-2">
-						<Button variant="ghost" size="icon" onclick={() => rateSnippet(snippet.id, 'thumbs_up')}>
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={() => rateSnippet(snippet.id, 'thumbs_up')}
+						>
 							<ThumbsUp class="h-4 w-4" />
 						</Button>
 						<span>{snippet.thumbs_up}</span>
-						<Button variant="ghost" size="icon" onclick={() => rateSnippet(snippet.id, 'thumbs_down')}>
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={() => rateSnippet(snippet.id, 'thumbs_down')}
+						>
 							<ThumbsDown class="h-4 w-4" />
 						</Button>
 						<span>{snippet.thumbs_down}</span>
 						<div class="relative">
-							<Button variant="ghost" size="icon" onclick={() => copyToClipboard(snippet.id, snippet.text)}>
+							<Button
+								variant="ghost"
+								size="icon"
+								onclick={() => copyToClipboard(snippet.id, snippet.Content)}
+							>
 								<Copy class="h-4 w-4" />
 							</Button>
 							{#if copiedState[snippet.id]}
-								<span class="absolute -top-8 left-1/2 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1 text-xs text-white">Copied!</span>
+								<span
+									class="absolute -top-8 left-1/2 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1 text-xs text-white"
+									>Copied!</span
+								>
 							{/if}
 						</div>
 					</div>
