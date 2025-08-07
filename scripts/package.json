@@ -5,13 +5,15 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "populate": "node populate.js"
+    "populate": "node populate.js",
+    "clear": "node clear-firestore.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "firebase": "^12.0.0"
+    "firebase": "^12.0.0",
+    "firebase-admin": "^12.0.0"
   }
 }

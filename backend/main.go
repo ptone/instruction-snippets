@@ -28,6 +28,7 @@ type Source struct {
 	Content       string    `firestore:"content"`
 	LastRefreshed time.Time `firestore:"last_refreshed"`
 	Type          string    `firestore:"type"`
+	Status        string    `firestore:"status"`
 }
 
 // Snippet defines the structure for the snippets collection
@@ -71,39 +72,18 @@ func main() {
 	}
 }
 
-func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is accepted", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req ProcessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Failed to decode request", http.StatusBadRequest)
-		return
-	}
-
-	ctx := context.Background()
-	source := Source{
-		Content:       req.Content,
-		LastRefreshed: time.Now(),
-		Type:          "file", // Assuming file upload for now
-	}
-
-	ref, _, err := app.firestoreClient.Collection("sources").Add(ctx, source)
-	if err != nil {
-		http.Error(w, "Failed to store source", http.StatusInternalServerError)
-		log.Printf("Failed to add source: %v", err)
-		return
-	}
-
-	log.Printf("Stored source with ID: %s", ref.ID)
-
+func (app *App) processSnippetsAsync(ctx context.Context, content string, sourceRef *firestore.DocumentRef) {
 	// Generate snippets from the markdown content
-	snippets, err := app.generateSnippets(ctx, req.Content)
+	snippets, err := app.generateSnippets(ctx, content)
 	if err != nil {
-		http.Error(w, "Failed to generate snippets", http.StatusInternalServerError)
 		log.Printf("Failed to generate snippets: %v", err)
+		// Update the source document with an error status
+		_, updateErr := sourceRef.Set(ctx, map[string]interface{}{
+			"status": "error",
+		}, firestore.MergeAll)
+		if updateErr != nil {
+			log.Printf("Failed to update source status: %v", updateErr)
+		}
 		return
 	}
 
@@ -127,7 +107,7 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 		newSnippet := Snippet{
 			Content:    snippetText,
 			Labels:     labels,
-			Source:     ref,
+			Source:     sourceRef,
 			ThumbsUp:   0,
 			ThumbsDown: 0,
 			CreatedAt:  time.Now(),
@@ -141,16 +121,47 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Update the last refreshed timestamp on the source document
-	_, err = ref.Set(ctx, map[string]interface{}{
+	// Update the source document to indicate processing is complete
+	_, err = sourceRef.Set(ctx, map[string]interface{}{
+		"status":         "processed",
 		"last_refreshed": time.Now(),
 	}, firestore.MergeAll)
 	if err != nil {
-		log.Printf("Failed to update source last_refreshed: %v", err)
+		log.Printf("Failed to update source status: %v", err)
+	}
+}
+
+func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST method is accepted", http.StatusMethodNotAllowed)
+		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Processing started"))
+	var req ProcessRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Failed to decode request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	source := Source{
+		Content:       req.Content,
+		LastRefreshed: time.Now(),
+		Type:          "file", // Assuming file upload for now
+		Status:        "processing",
+	}
+
+	ref, _, err := app.firestoreClient.Collection("sources").Add(ctx, source)
+	if err != nil {
+		http.Error(w, "Failed to store source", http.StatusInternalServerError)
+		log.Printf("Failed to add source: %v", err)
+		return
+	}
+
+	go app.processSnippetsAsync(context.Background(), req.Content, ref)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"documentId": ref.ID})
 }
 
 func (app *App) generateSnippets(ctx context.Context, content string) ([]string, error) {
@@ -180,7 +191,7 @@ func (app *App) generateSnippets(ctx context.Context, content string) ([]string,
 
 	prompt := "Break down the following markdown into discrete, standalone instruction snippets. Each snippet should be a self-contained piece of instruction. Markdown: " + content
 	config := &genai.GenerateContentConfig{Tools: tools}
-	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-1.5-flash", genai.Text(prompt), config)
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +243,7 @@ func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, e
 
 	prompt := "Generate a list of relevant labels for the following snippet. Snippet: " + snippet
 	config := &genai.GenerateContentConfig{Tools: tools}
-	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-1.5-flash", genai.Text(prompt), config)
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +270,8 @@ func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, e
 
 func (app *App) generateEmbedding(ctx context.Context, snippet string) ([]float32, error) {
 	contents := []*genai.Content{genai.NewContentFromText(snippet, genai.RoleUser)}
-	result, err := app.genaiClient.Models.EmbedContent(ctx, "embedding-001", contents, nil)
+	config := &genai.EmbedContentConfig{TaskType: "RETRIEVAL_DOCUMENT"}
+	result, err := app.genaiClient.Models.EmbedContent(ctx, "gemini-embedding-001", contents, config)
 	if err != nil {
 		return nil, err
 	}

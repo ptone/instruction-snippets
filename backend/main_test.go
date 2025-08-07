@@ -15,7 +15,7 @@ import (
 )
 
 func TestReadSampleFile(t *testing.T) {
-	content, err := ioutil.ReadFile("../samples/GEMINI.md")
+	content, err := ioutil.ReadFile("../samples/GEMINI-brief.md")
 	if err != nil {
 		t.Fatalf("Failed to read sample file: %v", err)
 	}
@@ -25,9 +25,7 @@ func TestReadSampleFile(t *testing.T) {
 }
 
 func TestProcessHandler_Integration(t *testing.T) {
-	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
-		t.Skip("Skipping integration test that requires firestore emulator. Set FIRESTORE_EMULATOR_HOST to run.")
-	}
+
 	// This test makes real calls to Google Cloud Vertex AI APIs.
 	// Ensure you have authenticated with `gcloud auth application-default login`.
 	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
@@ -51,7 +49,7 @@ func TestProcessHandler_Integration(t *testing.T) {
 
 	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
 		Project:  "new-test-297222",
-		Location: "us-central1",
+		Location: "global",
 		Backend:  genai.BackendVertexAI,
 	})
 	if err != nil {
@@ -63,7 +61,7 @@ func TestProcessHandler_Integration(t *testing.T) {
 		genaiClient:     genaiClient,
 	}
 
-	content, err := ioutil.ReadFile("../samples/GEMINI.md")
+	content, err := ioutil.ReadFile("../samples/GEMINI-brief.md")
 	if err != nil {
 		t.Fatalf("Failed to read sample file: %v", err)
 	}
