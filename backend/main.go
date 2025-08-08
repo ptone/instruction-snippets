@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -20,13 +21,16 @@ type App struct {
 
 // ProcessRequest defines the structure for the incoming request
 type ProcessRequest struct {
-	Content string `json:"content"`
-	Key     string `json:"key"`
+	Content string `json:"content,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 // Source defines the structure for the sources collection
 type Source struct {
 	Content       string    `firestore:"content"`
+	URL           string    `firestore:"url,omitempty"`
 	LastRefreshed time.Time `firestore:"last_refreshed"`
 	Type          string    `firestore:"type"`
 	Status        string    `firestore:"status"`
@@ -74,10 +78,10 @@ func main() {
 	}
 }
 
-func (app *App) processSnippetsAsync(ctx context.Context, content string, sourceRef *firestore.DocumentRef) {
+func (app *App) processSnippetsAsync(ctx context.Context, content string, sourceRef *firestore.DocumentRef, limit int) {
 	log.Println("Starting snippet processing...")
 	// Generate snippets from the markdown content
-	snippets, err := app.generateSnippets(ctx, content)
+	snippets, err := app.generateSnippets(ctx, content, limit)
 	if err != nil {
 		log.Printf("Failed to generate snippets: %v", err)
 		// Update the source document with an error status
@@ -152,15 +156,58 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Content == "" && req.URL == "" {
+		http.Error(w, "Request must contain either 'content' or 'url'", http.StatusBadRequest)
+		return
+	}
+
 	ctx := context.Background()
+	var content string
+	var err error
+
+	// If URL is provided, fetch content from it
+	if req.URL != "" {
+		resp, err := http.Get(req.URL)
+		if err != nil {
+			http.Error(w, "Failed to fetch URL", http.StatusInternalServerError)
+			log.Printf("Failed to fetch URL %s: %v", req.URL, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, fmt.Sprintf("Failed to fetch URL: status code %d", resp.StatusCode), http.StatusInternalServerError)
+			log.Printf("Failed to fetch URL %s: status code %d", req.URL, resp.StatusCode)
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			http.Error(w, "Failed to read response body", http.StatusInternalServerError)
+			log.Printf("Failed to read response body from %s: %v", req.URL, err)
+			return
+		}
+		content = string(body)
+	} else {
+		content = req.Content
+	}
+
+	// Use the provided key or default to the URL
+	key := req.Key
+	if key == "" {
+		key = req.URL
+	}
+	if key == "" {
+		http.Error(w, "A 'key' or 'url' must be provided for the source", http.StatusBadRequest)
+		return
+	}
 
 	// Check if a source with the given key already exists
-	iter := app.firestoreClient.Collection("sources").Where("key", "==", req.Key).Limit(1).Documents(ctx)
+	iter := app.firestoreClient.Collection("sources").Where("key", "==", key).Limit(1).Documents(ctx)
 	doc, err := iter.Next()
 	if err != nil {
 		if err.Error() == "no more items in iterator" {
-			// This is not an error, just means the source doesn't exist yet
-			doc = nil
+			doc = nil // Source doesn't exist yet
 		} else {
 			http.Error(w, "Failed to query for existing source", http.StatusInternalServerError)
 			log.Printf("Failed to query for existing source: %v", err)
@@ -172,29 +219,30 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 	if doc != nil {
 		// Source exists, delete old snippets and update
 		sourceRef = doc.Ref
-		log.Printf("Source with key '%s' found, reprocessing...", req.Key)
+		log.Printf("Source with key '%s' found, reprocessing...", key)
 
-		// Immediately update the status to "processing"
-		_, err := sourceRef.Set(ctx, map[string]interface{}{
-			"status": "processing",
-		}, firestore.MergeAll)
+		_, err := sourceRef.Set(ctx, map[string]interface{}{"status": "processing"}, firestore.MergeAll)
 		if err != nil {
 			http.Error(w, "Failed to update source status", http.StatusInternalServerError)
 			log.Printf("Failed to update source status: %v", err)
 			return
 		}
 
-		if err := app.deleteSnippetsBySource(ctx, sourceRef);
-		err != nil {
+		if err := app.deleteSnippetsBySource(ctx, sourceRef); err != nil {
 			http.Error(w, "Failed to delete old snippets", http.StatusInternalServerError)
 			log.Printf("Failed to delete old snippets: %v", err)
 			return
 		}
 
-		_, err = sourceRef.Set(ctx, map[string]interface{}{
-			"Content":       req.Content,
-			"LastRefreshed": time.Now(),
-		}, firestore.MergeAll)
+		updateData := map[string]interface{}{
+			"content":        content,
+			"last_refreshed": time.Now(),
+		}
+		if req.URL != "" {
+			updateData["url"] = req.URL
+		}
+
+		_, err = sourceRef.Set(ctx, updateData, firestore.MergeAll)
 		if err != nil {
 			http.Error(w, "Failed to update source", http.StatusInternalServerError)
 			log.Printf("Failed to update source: %v", err)
@@ -202,14 +250,18 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// No existing source, create a new one
-		source := Source{
-			Content:       req.Content,
-			LastRefreshed: time.Now(),
-			Type:          "file", // Assuming file upload for now
-			Status:        "processing",
-			Key:           req.Key,
+		sourceType := "file"
+		if req.URL != "" {
+			sourceType = "url"
 		}
-		var err error
+		source := Source{
+			Content:       content,
+			URL:           req.URL,
+			LastRefreshed: time.Now(),
+			Type:          sourceType,
+			Status:        "processing",
+			Key:           key,
+		}
 		sourceRef, _, err = app.firestoreClient.Collection("sources").Add(ctx, source)
 		if err != nil {
 			http.Error(w, "Failed to store source", http.StatusInternalServerError)
@@ -218,7 +270,7 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	go app.processSnippetsAsync(context.Background(), req.Content, sourceRef)
+	go app.processSnippetsAsync(context.Background(), content, sourceRef, req.Limit)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"documentId": sourceRef.ID})
@@ -244,7 +296,7 @@ func (app *App) deleteSnippetsBySource(ctx context.Context, sourceRef *firestore
 	return nil
 }
 
-func (app *App) generateSnippets(ctx context.Context, content string) ([]string, error) {
+func (app *App) generateSnippets(ctx context.Context, content string, limit int) ([]string, error) {
 	snippetSchema := &genai.Schema{
 		Type: genai.TypeObject,
 		Properties: map[string]*genai.Schema{
@@ -269,7 +321,12 @@ func (app *App) generateSnippets(ctx context.Context, content string) ([]string,
 		},
 	}
 
-	prompt := "Break down the following markdown into discrete, standalone instruction snippets, preserving the original markdown formatting and carriage returns. Each snippet should be a self-contained piece of instruction roughly a paragraph or so in size. Markdown: " + content
+	prompt := "Break down the following markdown into discrete, standalone instruction snippets, preserving the original markdown formatting and carriage returns. Each snippet should be a self-contained piece of instruction roughly a paragraph or so in size."
+	if limit > 0 {
+		prompt = fmt.Sprintf("%s Please provide no more than %d snippets.", prompt, limit)
+	}
+	prompt = prompt + " Markdown: " + content
+
 	config := &genai.GenerateContentConfig{Tools: tools}
 	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), config)
 	if err != nil {

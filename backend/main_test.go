@@ -132,3 +132,55 @@ func processAndVerify(t *testing.T, app *App, body []byte, firestoreClient *fire
 		t.Fatalf("Source document did not reach 'processed' status")
 	}
 }
+
+func TestProcessHandler_URL_Integration(t *testing.T) {
+	// This test makes real calls to Google Cloud Vertex AI APIs.
+	// Ensure you have authenticated with `gcloud auth application-default login`.
+	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+		// Check for ADC file existence as a proxy for being logged in.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("could not get user home directory: %v", err)
+		}
+		adcFile := home + "/.config/gcloud/application_default_credentials.json"
+		if _, err := os.Stat(adcFile); os.IsNotExist(err) {
+			t.Skip("Skipping integration test: Application Default Credentials not found. Run 'gcloud auth application-default login'.")
+		}
+	}
+
+	ctx := context.Background()
+	firestoreClient, err := firestore.NewClient(ctx, "new-test-297222")
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer firestoreClient.Close()
+
+	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		Project:  "new-test-297222",
+		Location: "global",
+		Backend:  genai.BackendVertexAI,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create genai client: %v", err)
+	}
+
+	app := &App{
+		firestoreClient: firestoreClient,
+		genaiClient:     genaiClient,
+	}
+
+	// Use a fixed key for the test to allow for manual re-runs
+	testURL := "https://github.com/google-gemini/gemini-cli/blob/main/GEMINI.md"
+
+	reqBody := ProcessRequest{
+		URL:   testURL,
+		Limit: 5,
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	processAndVerify(t, app, body, firestoreClient, ctx)
+
+}
