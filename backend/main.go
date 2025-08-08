@@ -48,6 +48,8 @@ type Snippet struct {
 	Embedding  []float32              `firestore:"embedding"`
 }
 
+
+
 func main() {
 	ctx := context.Background()
 	firestoreClient, err := firestore.NewClient(ctx, "new-test-297222")

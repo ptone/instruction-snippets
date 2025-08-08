@@ -73,14 +73,15 @@ This milestone should support the ability to re-run integration tests with the s
 **Goal:** Create a full end-to-end experience, from automated ingestion to a feature-rich user interface.
 
 *   **Backend:**
-    *   Implement a mechanism for ingesting content from URLs, triggered by a Cloud Scheduler job.
-    *   Store source information (URL, last refreshed date) in the `sources` collection.
-    *   Implement the Vertex AI safety filter for all generated content.
+
+    *   Implement the Vertex AI safety filter for all extracted snippet content. Start by simply storing safety score with snippet for client side filter.
+    *   Ensure the URL is used as a source key for URL based sources
 
 *   **Frontend:**
     *   Implement user login using Firebase Authentication with Google as the provider.
     *   Add sorting options to the search results (e.g., sort by rating, sort by date).
     *   Add advanced filtering capabilities (e.g., filter by one or more specific label pills).
+    *   Add a "add contribution" feature, that will allow users to submit a form with either file upload or by URL (but not both, use selector in form). Style everything with UI components
 
 ## Milestone 5: Refinement and Advanced Search
 
@@ -93,3 +94,10 @@ This milestone should support the ability to re-run integration tests with the s
     *   Integrate the frontend search bar with the new semantic search backend endpoint for more relevant search results.
     *   Refine the overall UI/UX for a polished, intuitive, and professional feel.
     *   Review and implement key items from the "Future Enhancements" section of the PRD, such as allowing users to save favorite snippets.
+
+
+# TODO collector
+
+    *   Update the mechanism for ingesting content from URLs,  triggered by a Cloud Scheduler job
+        * This should check when it was last refreshed, and perhaps retrieve and store a last-modified date from server or ETag to check
+        * Once the candidates are identified for updating, they should be enqued for processing. This could be done in a set of go-routines, ulimately as part of a Cloud Run Job (future work)

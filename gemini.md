@@ -4,7 +4,7 @@ This is to build a website as described in @system-prd.md
 
 ## Frontend
 
-Use typescript, sveltekit (with Svelte v5), Vite, shadcn-svelte components  for the web front end
+Use typescript, sveltekit (with Svelte v5), Vite, shadcn-svelte components for the web front end
 
 For Tailwind, always be sure to pay attention in using Tailwind version 4 conventions
 
