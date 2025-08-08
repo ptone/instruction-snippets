@@ -4,8 +4,7 @@
 	import { onMount } from 'svelte';
 	import Button from '$lib/components/ui/button/button.svelte';
 	import Input from '$lib/components/ui/input/input.svelte';
-	import * as RadioGroup from '$lib/components/ui/radio-group';
-	import { Label } from '$lib/components/ui/label';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 
 	let source_type = 'url'; // or 'file'
 	let url = '';
@@ -52,48 +51,48 @@
 	};
 </script>
 
-<div class="max-w-lg mx-auto">
-	<h2 class="text-2xl font-bold mb-4">Add a new Contribution</h2>
+<div class="mx-auto max-w-lg">
+	<h2 class="mb-4 text-2xl font-bold">Add a new Contribution</h2>
 
 	<form on:submit|preventDefault={handleSubmit}>
 		<div class="mb-4">
-			<Label for="key">Source Key (optional)</Label>
+			<label for="key">Source Key (optional)</label>
 			<Input id="key" bind:value={key} placeholder="e.g., my-awesome-source" />
-			<p class="text-sm text-muted-foreground mt-1">
+			<p class="mt-1 text-sm text-muted-foreground">
 				A unique key for this source. If not provided, the URL or filename will be used.
 			</p>
 		</div>
 
 		<div class="mb-4">
-			<Label>Source Type</Label>
-			<RadioGroup.Root bind:value={source_type} class="mt-2">
-				<div class="flex items-center space-x-2">
-					<RadioGroup.Item value="url" id="url" />
-					<Label for="url">URL</Label>
-				</div>
-				<div class="flex items-center space-x-2">
-					<RadioGroup.Item value="file" id="file" />
-					<Label for="file">File</Label>
-				</div>
-			</RadioGroup.Root>
+			<label for="source-type">Source Type</label>
+			<ToggleGroup.Root id="source-type" type="single" bind:value={source_type} class="mt-2">
+				<ToggleGroup.Item value="url">URL</ToggleGroup.Item>
+				<ToggleGroup.Item value="file">File</ToggleGroup.Item>
+			</ToggleGroup.Root>
 		</div>
 
 		{#if source_type === 'url'}
 			<div class="mb-4">
-				<Label for="url-input">URL</Label>
+				<label for="url-input">URL</label>
 				<Input id="url-input" type="url" bind:value={url} required placeholder="https://..." />
 			</div>
 		{:else}
 			<div class="mb-4">
-				<Label for="file-input">File</Label>
-				<Input id="file-input" type="file" bind:this={fileInput} on:change={handleFileChange} required />
+				<label for="file-input">File</label>
+				<input
+					id="file-input"
+					type="file"
+					bind:this={fileInput}
+					on:change={handleFileChange}
+					required
+				/>
 			</div>
 		{/if}
 
 		<div class="mb-4">
-			<Label for="limit">Snippet Limit (optional)</Label>
+			<label for="limit">Snippet Limit (optional)</label>
 			<Input id="limit" type="number" bind:value={limit} placeholder="0" />
-			<p class="text-sm text-muted-foreground mt-1">
+			<p class="mt-1 text-sm text-muted-foreground">
 				Limit the number of snippets generated. 0 means no limit.
 			</p>
 		</div>

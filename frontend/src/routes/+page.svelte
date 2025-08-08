@@ -13,7 +13,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
-	import * as Select from '$lib/components/ui/select';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { ThumbsUp, ThumbsDown, Copy, X } from 'lucide-svelte';
 
 	let snippets: DocumentData[] = [];
@@ -29,7 +29,7 @@
 			return {
 				id: doc.id,
 				...data,
-				createdAt: data.createdAt.toDate() // Convert Firestore Timestamp to JS Date
+				createdAt: data.createdAt ? data.createdAt.toDate() : new Date() // Convert Firestore Timestamp to JS Date
 			};
 		});
 	});
@@ -42,8 +42,9 @@
 				label.toLowerCase().includes(lowerCaseSearch)
 			);
 
-			const hasActiveLabels = activeFilters.size === 0 ||
-				[...activeFilters].every(filter => snippet.labels.includes(filter));
+			const hasActiveLabels =
+				activeFilters.size === 0 ||
+				[...activeFilters].every((filter) => snippet.labels.includes(filter));
 
 			return (inText || inLabels) && hasActiveLabels;
 		});
@@ -55,9 +56,9 @@
 				case 'oldest':
 					return a.createdAt - b.createdAt;
 				case 'most_liked':
-					return (b.thumbs_up - b.thumbs_down) - (a.thumbs_up - a.thumbs_down);
+					return b.thumbs_up - b.thumbs_down - (a.thumbs_up - a.thumbs_down);
 				case 'least_liked':
-					return (a.thumbs_up - a.thumbs_down) - (b.thumbs_up - b.thumbs_down);
+					return a.thumbs_up - a.thumbs_down - (b.thumbs_up - b.thumbs_down);
 				default:
 					return 0;
 			}
@@ -72,8 +73,8 @@
 			[rating]: increment(1)
 		});
 		// Optimistically update the UI
-		const snippet = snippets.find(s => s.id === id);
-		if(snippet) {
+		const snippet = snippets.find((s) => s.id === id);
+		if (snippet) {
 			snippet[rating]++;
 			snippets = [...snippets];
 		}
@@ -100,32 +101,30 @@
 </script>
 
 <div class="container mx-auto p-4">
-	<div class="flex justify-between items-center mb-4">
+	<div class="mb-4 flex items-center justify-between">
 		<h1 class="text-2xl font-bold">Instruction Snippets</h1>
 	</div>
 
-	<div class="flex space-x-4 mb-4">
+	<div class="mb-4 flex space-x-4">
 		<div class="flex-grow">
 			<Input placeholder="Search snippets..." bind:value={searchTerm} />
 		</div>
-		<Select.Root bind:value={sortBy}>
-			<Select.Trigger class="w-[180px]">
-				<Select.Value placeholder="Sort by" />
-			</Select.Trigger>
-			<Select.Content>
-				<Select.Item value="newest">Newest</Select.Item>
-				<Select.Item value="oldest">Oldest</Select.Item>
-				<Select.Item value="most_liked">Most Liked</Select.Item>
-				<Select.Item value="least_liked">Least Liked</Select.Item>
-			</Select.Content>
-		</Select.Root>
+		<ToggleGroup.Root type="single" bind:value={sortBy} class="flex-shrink-0">
+			<ToggleGroup.Item value="newest">Newest</ToggleGroup.Item>
+			<ToggleGroup.Item value="oldest">Oldest</ToggleGroup.Item>
+			<ToggleGroup.Item value="most_liked">Most Liked</ToggleGroup.Item>
+			<ToggleGroup.Item value="least_liked">Least Liked</ToggleGroup.Item>
+		</ToggleGroup.Root>
 	</div>
 
 	<div class="mb-4 flex flex-wrap gap-2">
 		{#each [...activeFilters] as filter}
-			<Badge class="cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
-				   on:click={() => toggleFilter(filter)}>
-				{filter} <X class="ml-2 h-4 w-4" />
+			<Badge
+				class="cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
+				onclick={() => toggleFilter(filter)}
+			>
+				{filter}
+				<X class="ml-2 h-4 w-4" />
 			</Badge>
 		{/each}
 	</div>
@@ -145,7 +144,7 @@
 							<Badge
 								class="mr-2 mb-2 cursor-pointer"
 								variant={activeFilters.has(label) ? 'secondary' : 'outline'}
-								on:click={() => toggleFilter(label)}>{label}</Badge
+								onclick={() => toggleFilter(label)}>{label}</Badge
 							>
 						{/each}
 					</div>
@@ -153,7 +152,7 @@
 						<Button
 							variant="ghost"
 							size="icon"
-							on:click={() => rateSnippet(snippet.id, 'thumbs_up')}
+							onclick={() => rateSnippet(snippet.id, 'thumbs_up')}
 						>
 							<ThumbsUp class="h-4 w-4" />
 						</Button>
@@ -161,7 +160,7 @@
 						<Button
 							variant="ghost"
 							size="icon"
-							on:click={() => rateSnippet(snippet.id, 'thumbs_down')}
+							onclick={() => rateSnippet(snippet.id, 'thumbs_down')}
 						>
 							<ThumbsDown class="h-4 w-4" />
 						</Button>
@@ -170,7 +169,7 @@
 							<Button
 								variant="ghost"
 								size="icon"
-								on:click={() => copyToClipboard(snippet.id, snippet.content)}
+								onclick={() => copyToClipboard(snippet.id, snippet.content)}
 							>
 								<Copy class="h-4 w-4" />
 							</Button>

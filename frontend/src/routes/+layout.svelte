@@ -37,7 +37,7 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<header class="flex justify-between items-center p-4 bg-gray-100 border-b">
+<header class="flex items-center justify-between border-b bg-gray-100 p-4">
 	<h1 class="text-2xl font-bold">Instruction Snippets</h1>
 	<div>
 		{#if $authUser}
@@ -45,9 +45,9 @@
 			<a href="/contribute" class="mr-4">
 				<Button variant="outline">Add Contribution</Button>
 			</a>
-			<Button on:click={signOutUser}>Logout</Button>
+			<Button onclick={signOutUser}>Logout</Button>
 		{:else}
-			<Button on:click={signIn}>Login with Google</Button>
+			<Button onclick={signIn}>Login with Google</Button>
 		{/if}
 	</div>
 </header>
@@ -55,4 +55,3 @@
 <main class="p-4">
 	{@render children?.()}
 </main>
-
