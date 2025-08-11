@@ -6,11 +6,13 @@
 	import Input from '$lib/components/ui/input/input.svelte';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 
+	import { API_HOST } from '$lib/config';
+
 	let source_type = 'url'; // or 'file'
 	let url = '';
 	let content = '';
 	let key = '';
-	let limit = 0;
+	let limit = '0';
 	let fileInput: HTMLInputElement;
 
 	onMount(() => {
@@ -31,14 +33,21 @@
 	};
 
 	const handleSubmit = async () => {
+		if (!$authUser) {
+			// Should not happen due to onMount check, but as a safeguard
+			return;
+		}
+
 		const body = {
 			key: key || (source_type === 'url' ? url : fileInput.files?.[0].name),
-			limit: limit || undefined,
+			limit: limit ? parseInt(limit, 10) : undefined,
 			url: source_type === 'url' ? url : undefined,
-			content: source_type === 'file' ? content : undefined
+			content: source_type === 'file' ? content : undefined,
+			submitterId: $authUser.uid,
+			submitterEmail: $authUser.email
 		};
 
-		await fetch('/api/process', {
+		await fetch(`${API_HOST}/process`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json'

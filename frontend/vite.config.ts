@@ -7,5 +7,13 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), devtoolsJson()],
 	ssr: {
 		noExternal: ['lucide-svelte']
+	},
+	optimizeDeps: {
+		exclude: ['svelte-toolbelt']
+	},
+	server: {
+		hmr: {
+			port: 24678
+		}
 	}
 });

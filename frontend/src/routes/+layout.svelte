@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import { auth, provider } from '$lib/firebase';
 	import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 	import { authUser } from '$lib/stores/auth';
@@ -42,9 +43,15 @@
 	<div>
 		{#if $authUser}
 			<span class="mr-4">Welcome, {$authUser.displayName}</span>
-			<a href="/contribute" class="mr-4">
-				<Button variant="outline">Add Contribution</Button>
-			</a>
+			{#if $page.route.id === '/sources'}
+				<a href="/" class="mr-4">
+					<Button variant="outline">Snippets</Button>
+				</a>
+			{:else}
+				<a href="/sources" class="mr-4">
+					<Button variant="outline">Sources</Button>
+				</a>
+			{/if}
 			<Button onclick={signOutUser}>Logout</Button>
 		{:else}
 			<Button onclick={signIn}>Login with Google</Button>

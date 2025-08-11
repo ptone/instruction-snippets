@@ -7,9 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"github.com/rs/cors"
 	"google.golang.org/genai"
 )
 
@@ -21,20 +23,24 @@ type App struct {
 
 // ProcessRequest defines the structure for the incoming request
 type ProcessRequest struct {
-	Content string `json:"content,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Key     string `json:"key,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Content        string `json:"content,omitempty"`
+	URL            string `json:"url,omitempty"`
+	Key            string `json:"key,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	SubmitterID    string `json:"submitterId,omitempty"`
+	SubmitterEmail string `json:"submitterEmail,omitempty"`
 }
 
 // Source defines the structure for the sources collection
 type Source struct {
-	Content       string    `firestore:"content"`
-	URL           string    `firestore:"url,omitempty"`
-	LastRefreshed time.Time `firestore:"last_refreshed"`
-	Type          string    `firestore:"type"`
-	Status        string    `firestore:"status"`
-	Key           string    `firestore:"key"`
+	Content        string    `firestore:"content"`
+	URL            string    `firestore:"url,omitempty"`
+	LastRefreshed  time.Time `firestore:"last_refreshed"`
+	Type           string    `firestore:"type"`
+	Status         string    `firestore:"status"`
+	Key            string    `firestore:"key"`
+	SubmitterID    string    `firestore:"submitterId"`
+	SubmitterEmail string    `firestore:"submitterEmail"`
 }
 
 // Snippet defines the structure for the snippets collection
@@ -72,10 +78,18 @@ func main() {
 		genaiClient:     genaiClient,
 	}
 
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Content-Type", "Authorization"},
+	})
+
+	handler := c.Handler(http.DefaultServeMux)
+
 	http.HandleFunc("/process", app.processHandler)
 
 	log.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":8080", handler); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
@@ -147,14 +161,24 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 }
 
 func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Received request for /process")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is accepted", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req ProcessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		log.Printf("Failed to read request body: %v", err)
+		return
+	}
+	log.Printf("Request body: %s", string(body))
+
+	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "Failed to decode request", http.StatusBadRequest)
+		log.Printf("Failed to decode request: %v", err)
 		return
 	}
 
@@ -165,11 +189,16 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	var content string
-	var err error
 
 	// If URL is provided, fetch content from it
 	if req.URL != "" {
-		resp, err := http.Get(req.URL)
+		url := req.URL
+		if strings.Contains(url, "github.com") && strings.Contains(url, "/blob/") {
+			url = strings.Replace(url, "github.com", "raw.githubusercontent.com", 1)
+			url = strings.Replace(url, "/blob/", "/", 1)
+		}
+
+		resp, err := http.Get(url)
 		if err != nil {
 			http.Error(w, "Failed to fetch URL", http.StatusInternalServerError)
 			log.Printf("Failed to fetch URL %s: %v", req.URL, err)
@@ -257,12 +286,14 @@ func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
 			sourceType = "url"
 		}
 		source := Source{
-			Content:       content,
-			URL:           req.URL,
-			LastRefreshed: time.Now(),
-			Type:          sourceType,
-			Status:        "processing",
-			Key:           key,
+			Content:        content,
+			URL:            req.URL,
+			LastRefreshed:  time.Now(),
+			Type:           sourceType,
+			Status:         "processing",
+			Key:            key,
+			SubmitterID:    req.SubmitterID,
+			SubmitterEmail: req.SubmitterEmail,
 		}
 		sourceRef, _, err = app.firestoreClient.Collection("sources").Add(ctx, source)
 		if err != nil {
