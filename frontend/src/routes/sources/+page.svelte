@@ -12,7 +12,7 @@
 
 	let sources: DocumentData[] = [];
 	let loading = true;
-	let showMySources = false;
+	let showMySources = true;
 
 	onMount(async () => {
 		if (!$authUser) {
@@ -51,7 +51,9 @@
 			role="button"
 			tabindex="0"
 		>
-			<Button variant={showMySources ? 'secondary' : 'outline'}>Show my submissions only</Button>
+			<Button variant={showMySources ? 'secondary' : 'outline'}>
+				{showMySources ? 'Show all submissions' : 'Show my submissions only'}
+			</Button>
 		</div>
 	</div>
 
