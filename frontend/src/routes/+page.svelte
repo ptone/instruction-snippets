@@ -117,23 +117,47 @@
 		</ToggleGroup.Root>
 	</div>
 
-	<div class="mb-4 flex flex-wrap gap-2">
+	<div class="mb-4 flex items-center gap-2">
+		{#if activeFilters.size > 0}
+			<span class="font-semibold">Includes:</span>
+		{/if}
 		{#each [...activeFilters] as filter}
-			<Badge
-				class="cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
-				onclick={() => toggleFilter(filter)}
+			<div
+				on:click={() => toggleFilter(filter)}
+				on:keydown={(e) => e.key === 'Enter' && toggleFilter(filter)}
+				role="button"
+				tabindex="0"
+				class="cursor-pointer"
 			>
-				{filter}
-				<X class="ml-2 h-4 w-4" />
-			</Badge>
+				<Badge class="bg-blue-500 text-white hover:bg-blue-600">
+					{filter}
+					<X class="ml-2 h-4 w-4" />
+				</Badge>
+			</div>
 		{/each}
 	</div>
 
 	<div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
 		{#each sortedAndFilteredSnippets as snippet}
-			<Card.Root>
+			<Card.Root class="relative">
 				<Card.Header>
-					<Card.Title>Snippet</Card.Title>
+					<div
+						class="absolute top-2 right-2"
+						on:click={() => copyToClipboard(snippet.id, snippet.content)}
+						on:keydown={(e) => e.key === 'Enter' && copyToClipboard(snippet.id, snippet.content)}
+						role="button"
+						tabindex="0"
+					>
+						<Button variant="ghost" size="icon">
+							<Copy class="h-4 w-4" />
+						</Button>
+						{#if copiedState[snippet.id]}
+							<span
+								class="absolute -bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1 text-xs text-white"
+								>Copied!</span
+							>
+						{/if}
+					</div>
 				</Card.Header>
 				<Card.Content>
 					<p class="whitespace-pre-wrap">{snippet.content}</p>
@@ -141,11 +165,18 @@
 				<Card.Footer class="flex-col items-start">
 					<div class="mt-2 flex flex-wrap">
 						{#each snippet.labels as label}
-							<Badge
-								class="mr-2 mb-2 cursor-pointer"
-								variant={activeFilters.has(label) ? 'secondary' : 'outline'}
-								onclick={() => toggleFilter(label)}>{label}</Badge
+							<div
+								on:click={() => toggleFilter(label)}
+								on:keydown={(e) => e.key === 'Enter' && toggleFilter(label)}
+								role="button"
+								tabindex="0"
+								class="inline-block cursor-pointer"
 							>
+								<Badge
+									class="mr-2 mb-2"
+									variant={activeFilters.has(label) ? 'secondary' : 'default'}>{label}</Badge
+								>
+							</div>
 						{/each}
 					</div>
 					<div class="flex items-center space-x-2 self-end">
@@ -165,21 +196,6 @@
 							<ThumbsDown class="h-4 w-4" />
 						</Button>
 						<span>{snippet.thumbs_down}</span>
-						<div class="relative">
-							<Button
-								variant="ghost"
-								size="icon"
-								onclick={() => copyToClipboard(snippet.id, snippet.content)}
-							>
-								<Copy class="h-4 w-4" />
-							</Button>
-							{#if copiedState[snippet.id]}
-								<span
-									class="absolute -top-8 left-1/2 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1 text-xs text-white"
-									>Copied!</span
-								>
-							{/if}
-						</div>
 					</div>
 				</Card.Footer>
 			</Card.Root>
