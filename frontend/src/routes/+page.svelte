@@ -141,6 +141,7 @@
 		{#each sortedAndFilteredSnippets as snippet}
 			<Card.Root class="relative">
 				<Card.Header>
+					<Card.Title>{snippet.title}</Card.Title>
 					<div
 						class="absolute top-2 right-2"
 						on:click={() => copyToClipboard(snippet.id, snippet.content)}

@@ -45,6 +45,7 @@ type Source struct {
 
 // Snippet defines the structure for the snippets collection
 type Snippet struct {
+	Title      string                 `firestore:"title,omitempty"`
 	Content    string                 `firestore:"content"`
 	Labels     []string               `firestore:"labels"`
 	Source     *firestore.DocumentRef `firestore:"source"`
@@ -52,6 +53,25 @@ type Snippet struct {
 	ThumbsDown int                    `firestore:"thumbs_down"`
 	CreatedAt  time.Time              `firestore:"created_at"`
 	Embedding  []float32              `firestore:"embedding"`
+}
+
+
+
+func (app *App) processSnippet(ctx context.Context, snippet *Snippet) {
+	lines := strings.Split(snippet.Content, "\n")
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "#") {
+		snippet.Title = strings.TrimLeft(lines[0], "# ")
+		snippet.Content = strings.Join(lines[1:], "\n")
+	} else {
+		// If there is no title, we will use the LLM to generate one.
+		title, err := app.generateTitle(ctx, snippet.Content)
+		if err != nil {
+			log.Printf("Failed to generate title: %v", err)
+			snippet.Title = "Untitled Snippet"
+		} else {
+			snippet.Title = title
+		}
+	}
 }
 
 
@@ -138,6 +158,8 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 			CreatedAt:  time.Now(),
 			Embedding:  embedding,
 		}
+
+		app.processSnippet(ctx, &newSnippet)
 
 		_, _, err = app.firestoreClient.Collection("snippets").Add(ctx, newSnippet)
 		if err != nil {
@@ -436,6 +458,21 @@ func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, e
 	}
 
 	return nil, fmt.Errorf("unexpected response format or empty response")
+}
+
+func (app *App) generateTitle(ctx context.Context, content string) (string, error) {
+	prompt := "Generate a concise and descriptive title for the following snippet. Snippet: " + content
+	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), nil)
+	if err != nil {
+		return "", err
+	}
+
+	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil && len(resp.Candidates[0].Content.Parts) > 0 {
+		part := resp.Candidates[0].Content.Parts[0]
+		return part.Text, nil
+	}
+
+	return "", fmt.Errorf("unexpected response format or empty response")
 }
 
 func (app *App) generateEmbedding(ctx context.Context, snippet string) ([]float32, error) {
