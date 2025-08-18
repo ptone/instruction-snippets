@@ -55,8 +55,6 @@ type Snippet struct {
 	Embedding  []float32              `firestore:"embedding"`
 }
 
-
-
 func (app *App) processSnippet(ctx context.Context, snippet *Snippet) {
 	lines := strings.Split(snippet.Content, "\n")
 	if len(lines) > 0 && strings.HasPrefix(lines[0], "#") {
@@ -73,8 +71,6 @@ func (app *App) processSnippet(ctx context.Context, snippet *Snippet) {
 		}
 	}
 }
-
-
 
 func main() {
 	ctx := context.Background()
@@ -461,7 +457,7 @@ func (app *App) generateLabels(ctx context.Context, snippet string) ([]string, e
 }
 
 func (app *App) generateTitle(ctx context.Context, content string) (string, error) {
-	prompt := "Generate a concise and descriptive title for the following snippet. Snippet: " + content
+	prompt := "Generate a concise and descriptive title for the following snippet. Return one and only one proposed title, with no markdown formatting. Snippet: " + content
 	resp, err := app.genaiClient.Models.GenerateContent(ctx, "gemini-2.5-flash", genai.Text(prompt), nil)
 	if err != nil {
 		return "", err
