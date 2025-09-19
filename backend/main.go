@@ -12,7 +12,6 @@ import (
 	"time"
 
 	firebase "firebase.google.com/go"
-	"google.golang.org/api/option"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/genai"
@@ -111,8 +110,12 @@ func main() {
 	http.Handle("/", fs)
 	http.Handle("/api/v1/process", app.authMiddleware(http.HandlerFunc(app.processHandler)))
 
-	log.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", http.DefaultServeMux); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Server starting on port %s...", port)
+	if err := http.ListenAndServe(":"+port, http.DefaultServeMux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
