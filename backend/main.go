@@ -7,11 +7,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	firebase "firebase.google.com/go"
+	"google.golang.org/api/option"
+
 	"cloud.google.com/go/firestore"
-	"github.com/rs/cors"
 	"google.golang.org/genai"
 )
 
@@ -19,6 +22,7 @@ import (
 type App struct {
 	firestoreClient *firestore.Client
 	genaiClient     *genai.Client
+	firebaseApp     *firebase.App
 }
 
 // ProcessRequest defines the structure for the incoming request
@@ -74,14 +78,16 @@ func (app *App) processSnippet(ctx context.Context, snippet *Snippet) {
 
 func main() {
 	ctx := context.Background()
-	firestoreClient, err := firestore.NewClient(ctx, "new-test-297222")
+	projectID := os.Getenv("GCP_PROJECT")
+
+	firestoreClient, err := firestore.NewClient(ctx, projectID)
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 	defer firestoreClient.Close()
 
 	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
-		Project:  "new-test-297222",
+		Project:  projectID,
 		Location: "global",
 		Backend:  genai.BackendVertexAI,
 	})
@@ -89,25 +95,56 @@ func main() {
 		log.Fatalf("Failed to create genai client: %v", err)
 	}
 
+	conf := &firebase.Config{ProjectID: projectID}
+	firebaseApp, err := firebase.NewApp(ctx, conf)
+	if err != nil {
+		log.Fatalf("error initializing app: %v\n", err)
+	}
+
 	app := &App{
 		firestoreClient: firestoreClient,
 		genaiClient:     genaiClient,
+		firebaseApp:     firebaseApp,
 	}
 
-	c := cors.New(cors.Options{
-		AllowedOrigins: []string{"http://localhost:5173"},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Content-Type", "Authorization"},
-	})
-
-	handler := c.Handler(http.DefaultServeMux)
-
-	http.HandleFunc("/process", app.processHandler)
+	fs := http.FileServer(http.Dir("../frontend/build"))
+	http.Handle("/", fs)
+	http.Handle("/api/v1/process", app.authMiddleware(http.HandlerFunc(app.processHandler)))
 
 	log.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
+	if err := http.ListenAndServe(":8080", http.DefaultServeMux); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func (app *App) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+		authClient, err := app.firebaseApp.Auth(ctx)
+		if err != nil {
+			log.Printf("error getting Auth client: %v\n", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			return
+		}
+
+		token := strings.Replace(authHeader, "Bearer ", "", 1)
+		decodedToken, err := authClient.VerifyIDToken(ctx, token)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		ctxWithUser := context.WithValue(r.Context(), "user", decodedToken)
+		rWithUser := r.WithContext(ctxWithUser)
+
+		next.ServeHTTP(w, rWithUser)
+	})
 }
 
 func (app *App) processSnippetsAsync(ctx context.Context, content string, sourceRef *firestore.DocumentRef, limit int) {
@@ -179,7 +216,7 @@ func (app *App) processSnippetsAsync(ctx context.Context, content string, source
 }
 
 func (app *App) processHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Received request for /process")
+	log.Println("Received request for /api/v1/process")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is accepted", http.StatusMethodNotAllowed)
 		return

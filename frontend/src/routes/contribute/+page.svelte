@@ -38,6 +38,8 @@
 			return;
 		}
 
+		const idToken = await $authUser.getIdToken();
+
 		const body = {
 			key: key || (source_type === 'url' ? url : fileInput.files?.[0].name),
 			limit: limit ? parseInt(limit, 10) : undefined,
@@ -47,10 +49,11 @@
 			submitterEmail: $authUser.email
 		};
 
-		await fetch(`${API_HOST}/process`, {
+		await fetch(`${API_HOST}/api/v1/process`, {
 			method: 'POST',
 			headers: {
-				'Content-Type': 'application/json'
+				'Content-Type': 'application/json',
+				'Authorization': `Bearer ${idToken}`
 			},
 			body: JSON.stringify(body)
 		});
