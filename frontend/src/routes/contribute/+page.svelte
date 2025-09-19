@@ -56,7 +56,7 @@
 		});
 
 		// maybe show a notification
-		goto('/');
+		goto('/sources');
 	};
 </script>
 

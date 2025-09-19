@@ -1,14 +1,20 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { marked } from 'marked';
 	import {
 		collection,
 		getDocs,
 		doc,
 		updateDoc,
 		increment,
+		writeBatch,
+		getDoc,
+		setDoc,
+		deleteDoc,
 		type DocumentData
 	} from 'firebase/firestore';
 	import { db } from '$lib/firebase';
+	import { authUser } from '$lib/stores/auth';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Input } from '$lib/components/ui/input';
@@ -21,6 +27,7 @@
 	let sortBy = 'newest';
 	let activeFilters = new Set<string>();
 	let copiedState: { [key: string]: boolean } = {};
+	let userVotes: { [key: string]: 'thumbs_up' | 'thumbs_down' | null } = {};
 
 	onMount(async () => {
 		const querySnapshot = await getDocs(collection(db, 'snippets'));
@@ -32,6 +39,16 @@
 				createdAt: data.createdAt ? data.createdAt.toDate() : new Date() // Convert Firestore Timestamp to JS Date
 			};
 		});
+
+		if ($authUser) {
+			for (const snippet of snippets) {
+				const voteDocRef = doc(db, 'snippets', snippet.id, 'votes', $authUser.uid);
+				const voteDoc = await getDoc(voteDocRef);
+				if (voteDoc.exists()) {
+					userVotes[snippet.id] = voteDoc.data().vote;
+				}
+			}
+		}
 	});
 
 	$: sortedAndFilteredSnippets = (() => {
@@ -68,16 +85,45 @@
 	})();
 
 	async function rateSnippet(id: string, rating: 'thumbs_up' | 'thumbs_down') {
-		const snippetRef = doc(db, 'snippets', id);
-		await updateDoc(snippetRef, {
-			[rating]: increment(1)
-		});
-		// Optimistically update the UI
-		const snippet = snippets.find((s) => s.id === id);
-		if (snippet) {
-			snippet[rating]++;
-			snippets = [...snippets];
+		if (!$authUser) {
+			// maybe show a message to login
+			return;
 		}
+
+		const snippetRef = doc(db, 'snippets', id);
+		const voteDocRef = doc(db, 'snippets', id, 'votes', $authUser.uid);
+		const existingVote = userVotes[id];
+
+		const snippet = snippets.find((s) => s.id === id);
+		if (!snippet) return;
+
+		if (existingVote === rating) {
+			// Revoke vote
+			await deleteDoc(voteDocRef);
+			await updateDoc(snippetRef, { [rating]: increment(-1) });
+			userVotes[id] = null;
+			snippet[rating]--;
+		} else if (existingVote) {
+			// Change vote
+			const batch = writeBatch(db);
+			batch.update(snippetRef, {
+				[existingVote]: increment(-1),
+				[rating]: increment(1)
+			});
+			batch.set(voteDocRef, { vote: rating });
+			await batch.commit();
+
+			userVotes[id] = rating;
+			snippet[existingVote]--;
+			snippet[rating]++;
+		} else {
+			// New vote
+			await setDoc(voteDocRef, { vote: rating });
+			await updateDoc(snippetRef, { [rating]: increment(1) });
+			userVotes[id] = rating;
+			snippet[rating]++;
+		}
+		snippets = [...snippets];
 	}
 
 	function copyToClipboard(id: string, text: string) {
@@ -161,7 +207,7 @@
 					</div>
 				</Card.Header>
 				<Card.Content>
-					<p class="whitespace-pre-wrap">{snippet.content}</p>
+					<div class="prose dark:prose-invert">{@html marked(snippet.content)}</div>
 				</Card.Content>
 				<Card.Footer class="flex-col items-start">
 					<div class="mt-2 flex flex-wrap">
@@ -186,7 +232,9 @@
 							size="icon"
 							onclick={() => rateSnippet(snippet.id, 'thumbs_up')}
 						>
-							<ThumbsUp class="h-4 w-4" />
+							<ThumbsUp
+								class="h-4 w-4 {userVotes[snippet.id] === 'thumbs_up' ? 'fill-current' : ''}"
+							/>
 						</Button>
 						<span>{snippet.thumbs_up}</span>
 						<Button
@@ -194,7 +242,9 @@
 							size="icon"
 							onclick={() => rateSnippet(snippet.id, 'thumbs_down')}
 						>
-							<ThumbsDown class="h-4 w-4" />
+							<ThumbsDown
+								class="h-4 w-4 {userVotes[snippet.id] === 'thumbs_down' ? 'fill-current' : ''}"
+							/>
 						</Button>
 						<span>{snippet.thumbs_down}</span>
 					</div>
