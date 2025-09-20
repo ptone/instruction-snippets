@@ -106,7 +106,7 @@ func main() {
 		firebaseApp:     firebaseApp,
 	}
 
-	fs := http.FileServer(http.Dir("../frontend/build"))
+	fs := http.FileServer(http.Dir("./frontend/build"))
 	http.Handle("/", fs)
 	http.Handle("/api/v1/process", app.authMiddleware(http.HandlerFunc(app.processHandler)))
 
