@@ -1,0 +1,42 @@
+# This file specifies files that are *not* uploaded to Google Cloud
+# when you run gcloud commands. For more information, run:
+# gcloud topic gcloudignore
+
+# Node.js dependencies. These are installed during the build process.
+node_modules/
+frontend/node_modules/
+scripts/node_modules/
+
+# SvelteKit build output and cache
+frontend/build/
+frontend/.svelte-kit/
+
+# Go executable. This is built on the server.
+backend/backend
+
+# Git directory
+.git/
+
+# Local environment configuration
+.env
+.env.*
+!frontend/.env.example
+!frontend/.env.test
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Temporary/scratch files
+scratch/
+
+# Project metadata and documentation not needed for the build
+findings.md
+milestones.md
+deployment_notes/
+samples/
+
+# IDE/editor configuration
+.idea/
+.vscode/
+*.swp
